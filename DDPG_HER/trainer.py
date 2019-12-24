@@ -12,15 +12,15 @@ import model
 
 import os
 
-BATCH_SIZE = 128
-LEARNING_RATE = 0.001
-GAMMA = 0.99
-TAU = 0.001
+#BATCH_SIZE = 128
+#LEARNING_RATE = 0.001
+#GAMMA = 0.99
+#TAU = 0.001
 
 
 class Trainer:
 
-	def __init__(self, state_dim, action_dim, action_lim, ram):
+	def __init__(self, args, state_dim, action_dim, action_lim, ram):
 		"""
 		:param state_dim: Dimensions of state (int)
 		:param action_dim: Dimension of action (int)
@@ -34,14 +34,15 @@ class Trainer:
 		self.ram = ram
 		self.iter = 0
 		self.noise = utils.OrnsteinUhlenbeckActionNoise(self.action_dim)
+		self.args = args
 
 		self.actor = model.Actor(self.state_dim, self.action_dim, self.action_lim)
 		self.target_actor = model.Actor(self.state_dim, self.action_dim, self.action_lim)
-		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),LEARNING_RATE)
+		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),self.args.learning_rate)
 
 		self.critic = model.Critic(self.state_dim, self.action_dim)
 		self.target_critic = model.Critic(self.state_dim, self.action_dim)
-		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),LEARNING_RATE)
+		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),self.args.learning_rate)
 
 		utils.hard_update(self.target_actor, self.actor)
 		utils.hard_update(self.target_critic, self.critic)
@@ -72,7 +73,7 @@ class Trainer:
 		Samples a random batch from replay memory and performs optimization
 		:return:
 		"""
-		s1,a1,r1,s2 = self.ram.sample(BATCH_SIZE)
+		s1,a1,r1,s2 = self.ram.sample(self.args.batch_size)
 
 		s1 = Variable(torch.from_numpy(s1))
 		a1 = Variable(torch.from_numpy(a1))
@@ -84,7 +85,7 @@ class Trainer:
 		a2 = self.target_actor.forward(s2).detach()
 		next_val = torch.squeeze(self.target_critic.forward(s2, a2).detach())
 		# y_exp = r + gamma*Q'( s2, pi'(s2))
-		y_expected = r1 + GAMMA*next_val
+		y_expected = r1 + self.args.gamma*next_val
 		# y_pred = Q( s1, a1)
 		y_predicted = torch.squeeze(self.critic.forward(s1, a1))
 		# compute critic loss, and update the critic
@@ -100,34 +101,34 @@ class Trainer:
 		loss_actor.backward()
 		self.actor_optimizer.step()
 
-		utils.soft_update(self.target_actor, self.actor, TAU)
-		utils.soft_update(self.target_critic, self.critic, TAU)
+		utils.soft_update(self.target_actor, self.actor, self.args.tau)
+		utils.soft_update(self.target_critic, self.critic, self.args.tau)
 
 		# if self.iter % 100 == 0:
 		# 	print 'Iteration :- ', self.iter, ' Loss_actor :- ', loss_actor.data.numpy(),\
 		# 		' Loss_critic :- ', loss_critic.data.numpy()
 		# self.iter += 1
 
-	def save_models(self, episode_count):
+	def save_models(self, dir_name,  episode_count):
 		"""
 		saves the target actor and critic models
 		:param episode_count: the count of episodes iterated
 		:return:
 		"""
-		if not os.path.exists('Models'):
-			os.mkdir('Models')
-		torch.save(self.target_actor.state_dict(), './Models/' + str(episode_count) + '_actor.pt')
-		torch.save(self.target_critic.state_dict(), './Models/' + str(episode_count) + '_critic.pt')
+		if not os.path.exists(dir_name + '/Models'):
+			os.mkdir(dir_name + '/Models')
+		torch.save(self.target_actor.state_dict(), dir_name + './Models/' + str(episode_count) + '_actor.pt')
+		torch.save(self.target_critic.state_dict(), dir_name + './Models/' + str(episode_count) + '_critic.pt')
 		print('Models saved successfully')
 
-	def load_models(self, episode):
+	def load_models(self, dir_name, episode):
 		"""
 		loads the target actor and critic models, and copies them onto actor and critic models
 		:param episode: the count of episodes iterated (used to find the file name)
 		:return:
 		"""
-		self.actor.load_state_dict(torch.load('./Models/' + str(episode) + '_actor.pt'))
-		self.critic.load_state_dict(torch.load('./Models/' + str(episode) + '_critic.pt'))
+		self.actor.load_state_dict(torch.load(dir_name + '/Models/' + str(episode) + '_actor.pt'))
+		self.critic.load_state_dict(torch.load(dir_name + '/Models/' + str(episode) + '_critic.pt'))
 		utils.hard_update(self.target_actor, self.actor)
 		utils.hard_update(self.target_critic, self.critic)
 		print('Models loaded succesfully')

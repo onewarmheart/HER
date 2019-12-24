@@ -1,82 +1,65 @@
 from __future__ import division
-import gym
-import numpy as np
-import torch
-from torch.autograd import Variable
-import os
-import psutil
-import gc
 
+import numpy as np
+import os
+import gym
+
+from train import training
+from evaluate import evaluating
 import trainer
 import buffer
+from arguments import get_args
 
-#env = gym.make('BipedalWalker-v2')
-env = gym.make('Pendulum-v0')
+import time
+from datetime import datetime
 
-MAX_EPISODES = 5000
-MAX_STEPS = 1000
-MAX_BUFFER = 1000000
-MAX_TOTAL_REWARD = 300
-S_DIM = env.observation_space.shape[0]
-A_DIM = env.action_space.shape[0]
-A_MAX = float(env.action_space.high[0])
+import logging
 
-print(' State Dimensions :- ', S_DIM)
-print(' Action Dimensions :- ', A_DIM)
-print(' Action Max :- ', A_MAX)
 
-ram = buffer.MemoryBuffer(MAX_BUFFER)
-trainer = trainer.Trainer(S_DIM, A_DIM, A_MAX, ram)
 
-return_history = []
-for _ep in range(MAX_EPISODES):
-    observation = env.reset()
-    print('EPISODE :- ', _ep)
-    ep_r = 0
+def run(args, env, agent, ram, env_params):
+    if(args.mode == 'train'):
+        training(args, env, agent, ram, env_params)
+    else:
+        evaluating(args, env, agent, args.max_episodes - 1)
+
+
+
+if __name__ == "__main__":
     
-    for r in range(MAX_STEPS):
-#        env.render()
-        state = np.float32(observation)
-#        state = observation
-        action = trainer.get_exploration_action(state)
-        # if _ep%5 == 0:
-        #     # validate every 5th episode
-        #     action = trainer.get_exploitation_action(state)
-        # else:
-        #     # get action based on observation, use exploration policy here
-        #     action = trainer.get_exploration_action(state)
-
-        new_observation, reward, done, info = env.step(action)
-        
-        ep_r = ep_r + reward
-        # # dont update if this is validation
-        # if _ep%50 == 0 or _ep>450:
-        #     continue
-
-        if done:
-            new_state = None
-        else:
-#            new_state = new_observation
-            new_state = np.float32(new_observation)
-            # push this exp in ram
-            ram.add(state, action, reward, new_state)
-
-        observation = new_observation
-
-        # perform optimization
-        trainer.optimize()
-        if done:
-            break
+    # get params
+    args = get_args()
     
-    print("{} episode | return: {}".format(_ep, ep_r))
-    return_history.append(ep_r)
-    # check memory consumption and clear memory
-    gc.collect()
-    # process = psutil.Process(os.getpid())
-    # print(process.memory_info().rss)
+    # create save directory
+    dt = datetime.fromtimestamp(int(time.time()))
+    args.dir_name = dt.strftime('%Y%m%d%H%M') + '_' + args.dir_name
+    os.mkdir(args.dir_name)
+    
+    # create environment
+    env = gym.make(args.env_name)
+    env_params = {
+        'state_dim' : env.observation_space.shape[0],
+        'action_dim' : env.action_space.shape[0],
+        'action_max' : float(env.action_space.high[0])
+    }
+    print(' State Dimensions :- ', env_params['state_dim'])
+    print(' Action Dimensions :- ', env_params['action_dim'])
+    print(' Action Max :- ', env_params['action_max'])
+    
+    # initialize memory buffer
+    ram = buffer.MemoryBuffer(args.buffer_size)
+    
+    # initialize agent
+    agent = trainer.Trainer(args,
+                            env_params['state_dim'],
+                            env_params['action_dim'],
+                            env_params['action_max'], ram)
+    
+    # config logging
+    logging.basicConfig(filename=args.dir_name + '/her.log',level=logging.DEBUG,filemode='w')
+    
+    run(args, env, agent, ram, env_params)
+    
+    # end logging
+    logging.shutdown()
 
-    if _ep%100 == 0:
-        trainer.save_models(_ep)
-
-
-print('Completed episodes')
